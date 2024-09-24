@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -9,7 +10,7 @@ const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;  
 const io = new Server(server, {
   cors: {
-    origin: "https://nft-card-game-flame.vercel.app/",
+    origin: process.env.CORS_ORIGIN,
     methods: ["GET", "POST"]
   }
 });
@@ -45,6 +46,7 @@ io.on('connection', (socket) => {
     socket.emit('welcome', { id: socket.id, name: playerName });
 
     if (players[gameId].length === 2) {
+      console.log(players[gameId])
       const [player1, player2] = players[gameId];
       io.to(gameId).emit('startGame', { 
         player1: { name: player1.name, id: player1.id },
@@ -53,7 +55,17 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('endTurn', (gameId, player) => {
+  socket.on('playCard', (gameId, card, zoneId) => {
+    if (!zones[gameId]) {
+      console.error(`Game ${gameId} does not exist.`);
+      return;
+    }
+    zones[gameId][zoneId].push(card);
+    console.log(`Card played: ${card} in zone ${zoneId} by player ${socket.id}`);
+    socket.emit('cardPlayed', card, zoneId);
+  });
+
+  socket.on('endTurn', (gameId, player, endGame = false) => {
     if (!playersReady[gameId]) {
         playersReady[gameId] = [];
     }
@@ -63,22 +75,12 @@ io.on('connection', (socket) => {
     if (playersReady[gameId].length === 2) {
         turnCount[gameId] = turnCount[gameId] + 1;
         io.to(gameId).emit('endTurn', turnCount[gameId]);
+        if (endGame) {
+          console.log(`Game ${gameId} ended`);
+          io.to(gameId).emit('gameEnded');
+        }
         playersReady[gameId] = [];
     }
-  });
-
-  socket.on('playCard', (gameId, card, zoneId) => {
-    if (!zones[gameId]) {
-      console.error(`Game ${gameId} does not exist.`);
-      return;
-    }
-
-    // Ajout de la carte dans la zone correspondante
-    zones[gameId][zoneId].push(card);
-    console.log(`Card played: ${card} in zone ${zoneId} by player ${socket.id}`);
-
-    // Emission au joueur spécifique que la carte est jouée
-    socket.emit('cardPlayed', card, zoneId);
   });
 
   socket.on('revealCards', (gameId) => {
@@ -86,17 +88,38 @@ io.on('connection', (socket) => {
       console.error(`Game ${gameId} does not exist.`);
       return;
     }
-
-    // Regroupement des cartes de toutes les zones
     const revealedCards = {};
     for (let zoneId in zones[gameId]) {
       revealedCards[zoneId] = zones[gameId][zoneId];
     }
 
     console.log(`Revealing cards for game ${gameId}:`, revealedCards);
-
-    // Emission de l'événement à tous les joueurs de la partie
     io.to(gameId).emit('cardsRevealed', revealedCards);
+  });
+
+  socket.on('pickWinner', (gameId, score) => {
+    if (!players[gameId]) {
+      console.error(`Game ${gameId} does not exist in players.`);
+      return;
+    }
+  
+    const player1 = players[gameId][0];
+    const player2 = players[gameId][1];
+  
+    const playerOneScore = score[0];
+    const playerTwoScore = score[1];
+  
+    let winner;
+    if (playerOneScore > playerTwoScore) {
+      winner = player1.name;
+    } else if (playerOneScore < playerTwoScore) {
+      winner = player2.name;
+    } else {
+      winner = 'Draw';
+    }
+  
+    io.to(gameId).emit('winner', winner);
+    console.log(`Game ${gameId} ended with score:`, score);
   });
 
   socket.on('disconnect', () => {
@@ -105,10 +128,9 @@ io.on('connection', (socket) => {
     for (const gameId in players) {
       players[gameId] = players[gameId].filter(player => player.id !== socket.id);
       
-      // Si tous les joueurs ont quitté la partie, on la supprime
       if (players[gameId].length === 0) {
         delete players[gameId];
-        delete zones[gameId];  // Réinitialiser les zones si la partie n'existe plus
+        delete zones[gameId];
         delete turnCount[gameId];
         delete playersReady[gameId];
       }
@@ -116,6 +138,6 @@ io.on('connection', (socket) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+server.listen(process.env.PORT, () => {
+  console.log(`Server is running on port ${process.env.PORT}`);
 });

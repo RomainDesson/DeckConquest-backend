@@ -73,6 +73,9 @@ io.on('connection', (socket) => {
         playersReady[gameId].push(player);
     }
     if (playersReady[gameId].length === 2) {
+        if (turnCount[gameId] === undefined) {
+          turnCount[gameId] = 1;
+        }
         turnCount[gameId] = turnCount[gameId] + 1;
         io.to(gameId).emit('endTurn', turnCount[gameId]);
         if (endGame) {
